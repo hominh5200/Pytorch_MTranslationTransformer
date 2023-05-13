@@ -137,10 +137,16 @@ def translate(model: torch.nn.Module, src_sentence: str,
 
 def evaluate_with_Bleu(data, model, src_lang, tgt_lang):
     targets, outputs = [], []
+    count = 0
     for src_sentence, tgt_sentence in data:
+        tgt_tokens = token_transform[tgt_lang](tgt_sentence)
+        targets.append([tgt_tokens])
         prediction = translate(model, src_sentence, src_lang, tgt_lang)
-        targets.append([tgt_sentence])
-        outputs.append([prediction])
+        output_tokens = token_transform[tgt_lang](prediction)
+        outputs.append(output_tokens)
+        if count < 5:
+            print(f"output_tokens: {output_tokens}\n tgt_tokens: {tgt_tokens}")
+        count += 1
     return bleu_score(outputs, targets)
 
 
