@@ -8,6 +8,7 @@ from torchtext.vocab import build_vocab_from_iterator
 from torchtext.datasets import multi30k, Multi30k
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
+from torchtext.data.metrics import bleu_score
 
 import myNN
 import utils
@@ -87,7 +88,8 @@ def evaluate(model):
     model.eval()
     losses = 0 
 
-    val_iter = Multi30k(split='valid', language_pair=(SRC_LANGUAGE,TGT_LANGUAGE))
+    val_iter = Multi30k(root='D:\\IT\\AI\\Pytorch_Tutorial\\data',
+                        split='valid', language_pair=(SRC_LANGUAGE,TGT_LANGUAGE))
     val_dataloader = DataLoader(val_iter, batch_size=BATCH_SIZE, collate_fn=collate_fn)
 
     for src, tgt in val_dataloader:
@@ -124,13 +126,22 @@ def greedy_decode(model, src, src_mask, max_len, start_symbol):
             break
     return ys
 
-def translate(model: torch.nn.Module, src_sentence: str):
+def translate(model: torch.nn.Module, src_sentence: str,
+              src_lang: str, tgt_lang: str):
     model.eval()
-    src = text_transform[SRC_LANGUAGE](src_sentence).view(-1,1)
+    src = text_transform[src_lang](src_sentence).view(-1,1)
     num_tokens = src.shape[0]
     src_mask = (torch.zeros(num_tokens, num_tokens)).type(torch.bool)
     tgt_tokens = greedy_decode(model, src, src_mask, max_len=num_tokens+5, start_symbol=BOS_IDX).flatten()
-    return " ".join(vocab_transform[TGT_LANGUAGE].lookup_tokens(list(tgt_tokens.cpu().numpy()))).replace("<bos>","").replace("<eos>","")
+    return " ".join(vocab_transform[tgt_lang].lookup_tokens(list(tgt_tokens.cpu().numpy()))).replace("<bos>","").replace("<eos>","")
+
+def evaluate_with_Bleu(data, model, src_lang, tgt_lang):
+    targets, outputs = [], []
+    for src_sentence, tgt_sentence in data:
+        prediction = translate(model, src_sentence, src_lang, tgt_lang)
+        targets.append([tgt_sentence])
+        outputs.append([prediction])
+    return bleu_score(outputs, targets)
 
 
 
@@ -178,6 +189,7 @@ if __name__ == "__main__":
     NUM_ENCODER_LAYERS = 3
     NUM_DECODER_LAYERS = 3
     LOAD_MODEL = True
+    VALID_MODE = True
     
     model = myNN.Seq2SeqTransformer(NUM_ENCODER_LAYERS, NUM_DECODER_LAYERS,
                                           EMB_SIZE, NHEAD, SRC_VOCAB_SIZE,
@@ -210,19 +222,24 @@ if __name__ == "__main__":
     NUM_EPOCHS = 1
     SAVE_MODEL = True
 
-    # for epoch in range(1, NUM_EPOCHS+1):
-    #     start_time = timer()
-    #     train_loss= train_epoch(model, optimizer)
-    #     end_time = timer()
-    #     val_loss = evaluate(model)
-    #     print(f"Epoch: {epoch}, \nTrain loss: {train_loss:.3f}, \nVal loss: {val_loss:.3f}\n")
-    #     print(f"Epoch time: {(end_time-start_time):.3f}s")
-        
-    #     if SAVE_MODEL:
-    #         checkpoint = {
-    #             "state_dict": model.state_dict(),
-    #             "optimizer": optimizer.state_dict(),
-    #         }
-    #         utils.save_checkpoint(checkpoint, filename=f'checkpoint\\checkpoint_at_epoch_{epoch}.pth.tar')
-    
-    print(translate(model, "Eine Gruppe von Menschen steht vor einem Iglu ."))
+    print(translate(model, "Eine Gruppe von Menschen steht vor einem Iglu .", SRC_LANGUAGE, TGT_LANGUAGE))
+    if VALID_MODE:
+        validation_iter = Multi30k(root='D:\\IT\\AI\\Pytorch_Tutorial\\data',
+                                split='valid', language_pair=(SRC_LANGUAGE, TGT_LANGUAGE))
+        validation_score = evaluate_with_Bleu(validation_iter, model, SRC_LANGUAGE, TGT_LANGUAGE)
+        print(f"Bleu score on validation data: {validation_score}")
+    else:
+        for epoch in range(1, NUM_EPOCHS+1):
+            start_time = timer()
+            train_loss= train_epoch(model, optimizer)
+            end_time = timer()
+            val_loss = evaluate(model)
+            print(f"Epoch: {epoch}, \nTrain loss: {train_loss:.3f}, \nVal loss: {val_loss:.3f}\n")
+            print(f"Epoch time: {(end_time-start_time):.3f}s")
+            
+            if SAVE_MODEL:
+                checkpoint = {
+                    "state_dict": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                }
+                utils.save_checkpoint(checkpoint, filename=f'checkpoint\\checkpoint_at_epoch_{epoch}.pth.tar')
